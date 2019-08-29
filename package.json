@@ -4,7 +4,7 @@
   "description": "Node.js package to assist in the connection between cucumber BDD tests and BrowserStack.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Not yet implemented.\" >&2; exit 1;"
+    "test": "./node_modules/.bin/eslint ./*.js"
   },
   "repository": {
     "type": "git",
@@ -26,6 +26,7 @@
   "devDependencies": {
     "browserstack-local": "^1.4.2",
     "cucumber": "^5.1.0",
+    "eslint": "^6.2.2",
     "selenium-webdriver": "^4.0.0-alpha.4"
   }
 }
