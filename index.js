@@ -29,10 +29,15 @@ module.exports = {
     let selector;
     for (let mapItem of selectorMap) {
       if (mapItem.pattern instanceof RegExp && (m = mapItem.pattern.exec(description)) !== null) {
-        /* jshint -W083 */
         let i = 1;
         let selectorKey = Object.keys(mapItem.selector)[0];
-        let selectorText = mapItem.selector[selectorKey].replace(/%s/g, () => m[i++]); // This potentially confusing syntax iteratively replaces %s with matched groups within the pattern regexp.
+        var selectorText;
+        if (selectorKey === 'contains') {
+          selectorKey = 'xpath';
+          mapItem.selector[selectorKey] = "/html/body//*[contains(translate(text(),'abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLOMNOPQRSTUVWXYZ'),translate('%s','abcdefghijklmnopqrstuvwxyz','ABCDEFGHIJKLOMNOPQRSTUVWXYZ'))]";
+        }
+        /* jshint -W083 */
+        selectorText = mapItem.selector[selectorKey].replace(/%s/g, () => m[i++]); // This potentially confusing syntax iteratively replaces %s with matched groups within the pattern regexp.
         /* jshint +W083 */
         selector = {};
         selector[selectorKey] = selectorText;
@@ -51,6 +56,7 @@ module.exports = {
   getElementWithSelector: async function (selector, driver, takeScreenshot=true) {
     if (await module.exports.detectElementWithSelector(selector, driver)) {
       let element = await driver.findElement(selector);
+      await module.exports.scrollToElement(element, driver);
       if (takeScreenshot) {
         await driver.takeScreenshot(true);
       }
@@ -86,10 +92,62 @@ module.exports = {
       return click;
     }
   },
+  scrollToElement: async function(element, driver) {
+    let scrollAroundForInteraction = async function (element) {
+      let i = function () {
+        let w = {
+          top: window.pageYOffset,
+          left: window.pageXOffset,
+          height: window.innerHeight,
+          width: window.innerWidth
+        };
+        w.right = w.left + w.width;
+        w.bottom = w.top + w.height;
+        let e = element.getBoundingClientRect();
+        e.center = {x: e.left + (e.width / 2), y: e.top + (e.height / 2)};
+        return {w:w, e:e};
+      };
+      let inVP = function (o) {
+        return !(o.e.bottom > o.w.bottom ||
+        o.e.top < o.w.top ||
+        o.e.right > o.w.right ||
+        o.e.left < o.w.left);
+      };
+      let o = i();
+      // Detect if the element is in viewport.
+      if (!inVP(o)) {
+        // Element is not in the current viewport.
+        await element.scrollIntoView(true);
+        o = i();
+      }
+      // Detect if the element is covered up or otherwise not pointable. If not, scroll a bit.
+      if (
+        !inVP(o) ||
+        document.elementFromPoint(o.e.center.x, o.e.center.y) !== element
+      ) {
+        let tries = 0;
+        let maxTries = 20;
+        while ((!inVP(o) || document.elementFromPoint(o.e.center.x, o.e.center.y) !== element) && tries < maxTries) {
+          if (o.w.bottom > o.e.bottom) { // If window bottom is greater (lower on the screen) than the element bottom - then you can scroll more.
+            window.scroll(window.scrollX, window.scrollY - o.e.height);
+          }
+          if (o.w.right > o.e.right) { // If the right side of the window is greater (father right) than the element right - then you can scroll right.
+            window.scroll(window.scrollX - o.e.width, window.scrollY);
+          }
+          o = i();
+          tries++;
+        }
+        if (tries === maxTries) {
+          throw `Selenium interaction failed ${tries} times to scroll to the element. ` + element;
+        }
+      }
+    };
+    return await driver.executeScript('(' + scrollAroundForInteraction.toString() + ')(arguments[0]);', element);
+  },
   detectPageSourceMatch: async function (copy, driver) {
     let test = !(await driver.wait(async function() {
       return await driver.getPageSource().then(function(source) {
-        return source.indexOf(copy) > -1;
+        return source.indexOf(copy.trim()) > -1;
       });
     }, 5000));
     return test;
@@ -99,7 +157,7 @@ module.exports = {
     let test = !(await driver.wait(function() {
       return driver.getTitle().then(function(title) {
         t = title;
-        return title.indexOf(copy) > -1;
+        return (title.indexOf(copy.trim()) > -1);
       });
     }, 5000));
     return (!returnTitle) ? test : t;
